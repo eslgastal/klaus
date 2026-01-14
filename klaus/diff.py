@@ -15,6 +15,14 @@ from klaus.utils import escape_html as e
 
 def highlight_line(old_line, new_line):
     """Highlight inline changes in both lines."""
+    # Preserve trailing newlines - strip before comparison and restore after.
+    # This ensures newlines are not highlighted as changes and allows the
+    # no_newline detection to work correctly.
+    old_nl = b"\n" if old_line.endswith(b"\n") else b""
+    new_nl = b"\n" if new_line.endswith(b"\n") else b""
+    old_line = old_line.rstrip(b"\n")
+    new_line = new_line.rstrip(b"\n")
+
     start = 0
     limit = min(len(old_line), len(new_line))
     while start < limit and old_line[start] == new_line[start]:
@@ -44,7 +52,9 @@ def highlight_line(old_line, new_line):
 
         old_line = do(old_line, b"del")
         new_line = do(new_line, b"ins")
-    return old_line, new_line
+
+    # Restore trailing newlines
+    return old_line + old_nl, new_line + new_nl
 
 
 def render_diff(a, b, n=3):
@@ -78,10 +88,19 @@ def render_diff(a, b, n=3):
                 for c, line in enumerate(a[i1:i2]):
                     add_line(i1 + c, None, "del", e(line))
             elif tag == "replace":
-                for c, line in enumerate(a[i1:i2]):
-                    add_line(i1 + c, None, "del", e(line))
-                for c, line in enumerate(b[j1:j2]):
-                    add_line(None, j1 + c, "add", e(line))
+                old_lines = a[i1:i2]
+                new_lines = b[j1:j2]
+                # Apply inline highlighting for paired lines
+                num_pairs = min(len(old_lines), len(new_lines))
+                for c in range(num_pairs):
+                    old_hl, new_hl = highlight_line(e(old_lines[c]), e(new_lines[c]))
+                    add_line(i1 + c, None, "del", old_hl)
+                    add_line(None, j1 + c, "add", new_hl)
+                # Add remaining unpaired lines without inline highlighting
+                for c, line in enumerate(old_lines[num_pairs:]):
+                    add_line(i1 + num_pairs + c, None, "del", e(line))
+                for c, line in enumerate(new_lines[num_pairs:]):
+                    add_line(None, j1 + num_pairs + c, "add", e(line))
             else:
                 raise AssertionError("unknown tag %s" % tag)
 
